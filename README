@@ -151,6 +151,8 @@ METHODS
         # given: synopsis
       
         $store->lpush('zing:main:global:model:items', { status => '0' });
+      
+        $store->lpush('zing:main:global:model:items', { status => '0' });
 
  recv
 

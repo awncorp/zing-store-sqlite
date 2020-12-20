@@ -150,6 +150,8 @@ The lpush method pushed data onto the top of a list in the datastore.
 
         $store->lpush('zing:main:global:model:items', { status => '0' });
 
+        $store->lpush('zing:main:global:model:items', { status => '0' });
+
 ## recv
 
     recv(Str $key) : Maybe[HashRef]
