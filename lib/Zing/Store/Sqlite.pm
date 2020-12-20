@@ -48,25 +48,30 @@ fun new_table($self) {
 # BUILDERS
 
 fun new_encoder($self) {
-  require Zing::Encoder::Json; Zing::Encoder::Json->new;
+  require Zing::Encoder::Dump; Zing::Encoder::Dump->new;
 }
 
 fun BUILD($self) {
   my $client = $self->client;
   my $table = $self->table;
   do {
-    $client->do(
-      qq{create table if not exists "$table" (
-        "key" varchar primary key, "value" text not null
-      )}
-    );
+    $client->do(qq{
+      create table if not exists "$table" (
+        "id" integer primary key,
+        "key" varchar not null,
+        "value" text not null,
+        "index" integer default 0
+      )
+    });
   }
   unless (defined(do{
     local $@;
     local $client->{RaiseError} = 0;
     local $client->{PrintError} = 0;
     eval {
-      $client->do(qq{select 1 from "$table" where 1 = 1})
+      $client->do(qq{
+        select 1 from "$table" where 1 = 1
+      })
     }
   }));
   return $self;
@@ -81,72 +86,76 @@ fun DESTROY($self) {
 
 method drop(Str $key) {
   my $table = $self->table;
-  if (my $data = $self->recv($key)) {
-    $self->client->begin_work;
-    $self->client->prepare(
-      qq{delete from "$table" where "key" = ?},
-    )->execute($key);
-    $self->client->commit;
-    return 1;
-  }
-  return 0;
+  my $client = $self->client;
+  my $sth = $client->prepare(
+    qq{delete from "$table" where "key" = ?}
+  );
+  $sth->execute($key);
+  return $sth->rows > 0 ? 1 : 0;
 }
 
 method keys(Str $query) {
   $query =~ s/\*/%/g;
   my $table = $self->table;
-  my $data = $self->client->selectall_arrayref(
-    qq{select "key" from "$table" where "key" like ?},
-    { Slice => {} },
+  my $client = $self->client;
+  my $data = $client->selectall_arrayref(
+    qq{select distinct("key") from "$table" where "key" like ?},
+    {},
     $query,
   );
-  return [map $$_{key}, @$data];
+  return [map $$_[0], @$data];
 }
 
 method lpull(Str $key) {
-  if ($self->test($key)) {
-    if (my $data = $self->recv($key)) {
-      $self->client->begin_work;
-      my $result = shift @{$data->{list}};
-      $self->send($key, $data);
-      $self->client->commit;
-      return $result;
-    }
+  my $table = $self->table;
+  my $client = $self->client;
+  my $data = $client->selectrow_arrayref(
+    qq{
+      select "t0"."id", "t0"."value"
+      from "$table" "t0" where "t0"."id" = (
+        select min("t1"."id")
+        from "$table" "t1" where "t1"."key" = ?
+      )
+    },
+    {},
+    $key,
+  );
+  if ($data) {
+    my $sth = $client->prepare(
+      qq{delete from "$table" where "id" = ?}
+    );
+    $sth->execute($data->[0]);
   }
-  return undef;
+  return $data ? $self->decode($data->[1]) : undef;
 }
 
 method lpush(Str $key, HashRef $val) {
-  if ($self->test($key)) {
-    if (my $data = $self->recv($key)) {
-      $self->client->begin_work;
-      my $result = unshift @{$data->{list}}, $val;
-      $self->send($key, $data);
-      $self->client->commit;
-      return $result;
+  my $table = $self->table;
+  my $client = $self->client;
+  my $sth = $client->prepare(
+    qq{
+      insert into "$table" ("key", "value", "index") values (?, ?, (
+        select coalesce(min("me"."index"), 0) - 1
+        from "$table" "me" where "me"."key" = ?
+      ))
     }
-    else {
-      return undef;
-    }
-  }
-  else {
-    $self->client->begin_work;
-    my $data = {list => []};
-    my $result = unshift @{$data->{list}}, $val;
-    $self->send($key, $data);
-    $self->client->commit;
-    return $result;
-  }
+  );
+  $sth->execute($key, $self->encode($val), $key);
+  return $sth->rows;
 }
 
 method read(Str $key) {
   my $table = $self->table;
-  my $data = $self->client->selectall_arrayref(
-    qq{select "value" from "$table" where "key" = ?},
-    { Slice => {} },
+  my $client = $self->client;
+  my $data = $client->selectrow_arrayref(
+    qq{
+      select "value" from "$table"
+      where "key" = ? order by "id" desc limit 1
+    },
+    {},
     $key,
   );
-  return @$data ? $data->[0]{value} : undef;
+  return $data ? $data->[0] : undef;
 }
 
 method recv(Str $key) {
@@ -155,39 +164,41 @@ method recv(Str $key) {
 }
 
 method rpull(Str $key) {
-  if ($self->test($key)) {
-    if (my $data = $self->recv($key)) {
-      $self->client->begin_work;
-      my $result = pop @{$data->{list}};
-      $self->send($key, $data);
-      $self->client->commit;
-      return $result;
-    }
+  my $table = $self->table;
+  my $client = $self->client;
+  my $data = $client->selectrow_arrayref(
+    qq{
+      select "t0"."id", "t0"."value"
+      from "$table" "t0" where "t0"."id" = (
+        select max("t1"."id")
+        from "$table" "t1" where "t1"."key" = ?
+      )
+    },
+    {},
+    $key,
+  );
+  if ($data) {
+    my $sth = $client->prepare(
+      qq{delete from "$table" where "id" = ?}
+    );
+    $sth->execute($data->[0]);
   }
-  return undef;
+  return $data ? $self->decode($data->[1]) : undef;
 }
 
 method rpush(Str $key, HashRef $val) {
-  if ($self->test($key)) {
-    if (my $data = $self->recv($key)) {
-      $self->client->begin_work;
-      my $result = push @{$data->{list}}, $val;
-      $self->send($key, $data);
-      $self->client->commit;
-      return $result;
+  my $table = $self->table;
+  my $client = $self->client;
+  my $sth = $client->prepare(
+    qq{
+      insert into "$table" ("key", "value", "index") values (?, ?, (
+        select coalesce(max("me"."index"), 0) + 1
+        from "$table" "me" where "me"."key" = ?
+      ))
     }
-    else {
-      return undef;
-    }
-  }
-  else {
-    $self->client->begin_work;
-    my $data = {list => []};
-    my $result = push @{$data->{list}}, $val;
-    $self->send($key, $data);
-    $self->client->commit;
-    return $result;
-  }
+  );
+  $sth->execute($key, $self->encode($val), $key);
+  return $sth->rows;
 }
 
 method send(Str $key, HashRef $val) {
@@ -197,39 +208,49 @@ method send(Str $key, HashRef $val) {
 }
 
 method size(Str $key) {
-  if ($self->test($key)) {
-    if (my $data = $self->recv($key)) {
-      return scalar(@{$data->{list}});
-    }
-  }
-  return 0;
+  my $table = $self->table;
+  my $client = $self->client;
+  my $data = $client->selectrow_arrayref(
+    qq{select count("key") from "$table" where "key" = ?},
+    {},
+    $key,
+  );
+  return $data->[0];
 }
 
 method slot(Str $key, Int $pos) {
-  if ($self->test($key)) {
-    if (my $data = $self->recv($key)) {
-      return $data->{list}[$pos];
-    }
-  }
-  return undef;
+  my $table = $self->table;
+  my $client = $self->client;
+  my $data = $client->selectrow_arrayref(
+    qq{
+      select "value" from "$table"
+      where "key" = ? order by "index" asc limit ?, 1
+    },
+    {},
+    $key, $pos
+  );
+  return $data ? $self->decode($data->[0]) : undef;
 }
 
 method test(Str $key) {
   my $table = $self->table;
-  my $data = $self->client->selectall_arrayref(
-    qq{select true from "$table" where "key" = ?},
-    { Slice => {} },
+  my $client = $self->client;
+  my $data = $client->selectrow_arrayref(
+    qq{select count("id") from "$table" where "key" = ?},
+    {},
     $key,
   );
-  return @$data ? 1 : 0;
+  return $data->[0] ? 1 : 0;
 }
 
 method write(Str $key, Str $data) {
   my $table = $self->table;
-  $self->client->prepare(
-    qq{insert into "$table" values (?, ?)
-    on conflict ("key")
-    do update set "value" = EXCLUDED.value},
+  my $client = $self->client;
+  $client->prepare(
+    qq{delete from "$table" where "key" = ?}
+  )->execute($key);
+  $client->prepare(
+    qq{insert into "$table" ("key", "value") values (?, ?)}
   )->execute($key, $data);
   return $self;
 }
