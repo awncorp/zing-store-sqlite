@@ -372,6 +372,8 @@ lpush(Str $key, HashRef $val) : Int
 
   $store->lpush('zing:main:global:model:items', { status => '0' });
 
+  $store->lpush('zing:main:global:model:items', { status => '0' });
+
 =cut
 
 package main;
@@ -379,169 +381,177 @@ package main;
 use File::Find ();
 use File::Spec ();
 
-File::Find::find(
-  sub {
-    -f && unlink $_;
-  },
-  File::Spec->catfile(File::Spec->curdir, 'zing'),
-);
+if (-d (my $root = File::Spec->catfile(File::Spec->curdir, 'zing'))) {
+  File::Find::find(
+    sub {
+      -f && unlink $_;
+    },
+    $root,
+  );
+}
 
-my $test = testauto(__FILE__);
+SKIP: {
+  unless ($ENV{TESTDB_DATABASE}) {
+    skip 'Environment not configured for SQLite testing';
+  }
 
-my $subs = $test->standard;
+  my $test = testauto(__FILE__);
 
-$subs->synopsis(fun($tryable) {
-  ok my $result = $tryable->result;
+  my $subs = $test->standard;
 
-  $result
-});
+  $subs->synopsis(fun($tryable) {
+    ok my $result = $tryable->result;
 
-$subs->example(-1, 'drop', 'method', fun($tryable) {
-  ok !(my $result = $tryable->result);
-  is $result, 0;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'drop', 'method', fun($tryable) {
+    ok !(my $result = $tryable->result);
+    is $result, 0;
 
-$subs->example(-1, 'encode', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  like $result, qr/status.*=>.*ok/;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'encode', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    like $result, qr/status.*=>.*ok/;
 
-$subs->example(-1, 'keys', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is @$result, 0;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'keys', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is @$result, 0;
 
-$subs->example(-2, 'keys', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is @$result, 1;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'keys', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is @$result, 1;
 
-$subs->example(-1, 'rpull', 'method', fun($tryable) {
-  ok !(my $result = $tryable->result);
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'rpull', 'method', fun($tryable) {
+    ok !(my $result = $tryable->result);
 
-$subs->example(-2, 'rpull', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is_deeply $result, {status => 2};
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'rpull', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is_deeply $result, {status => 2};
 
-$subs->example(-1, 'lpull', 'method', fun($tryable) {
-  ok !(my $result = $tryable->result);
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'lpull', 'method', fun($tryable) {
+    ok !(my $result = $tryable->result);
 
-$subs->example(-2, 'lpull', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is_deeply $result, {status => 'ok'};
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'lpull', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is_deeply $result, {status => 'ok'};
 
-$subs->example(-1, 'rpush', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is $result, 1;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'rpush', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is $result, 1;
 
-$subs->example(-2, 'rpush', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is $result, 2;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'rpush', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is $result, 1;
 
-$subs->example(-1, 'decode', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is_deeply $result, {status => 'ok'};
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'decode', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is_deeply $result, {status => 'ok'};
 
-$subs->example(-1, 'recv', 'method', fun($tryable) {
-  ok !(my $result = $tryable->result);
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'recv', 'method', fun($tryable) {
+    ok !(my $result = $tryable->result);
 
-$subs->example(-2, 'recv', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is_deeply $result, {status => 'ok'};
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'recv', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is_deeply $result, {status => 'ok'};
 
-$subs->example(-1, 'send', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is $result, 'OK';
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'send', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is $result, 'OK';
 
-$subs->example(-1, 'size', 'method', fun($tryable) {
-  ok !(my $result = $tryable->result);
-  is $result, 0;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'size', 'method', fun($tryable) {
+    ok !(my $result = $tryable->result);
+    is $result, 0;
 
-$subs->example(-2, 'size', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is $result, 1;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'size', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is $result, 1;
 
-$subs->example(-1, 'slot', 'method', fun($tryable) {
-  ok !(my $result = $tryable->result);
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'slot', 'method', fun($tryable) {
+    ok !(my $result = $tryable->result);
 
-$subs->example(-2, 'slot', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is_deeply $result, {status => 'ok'};
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'slot', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is_deeply $result, {status => 'ok'};
 
-$subs->example(-1, 'test', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'test', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
 
-$subs->example(-2, 'test', 'method', fun($tryable) {
-  ok !(my $result = $tryable->result);
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'test', 'method', fun($tryable) {
+    ok !(my $result = $tryable->result);
 
-$subs->example(-1, 'lpush', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is $result, 1;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-1, 'lpush', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is $result, 1;
 
-$subs->example(-2, 'lpush', 'method', fun($tryable) {
-  ok my $result = $tryable->result;
-  is $result, 1;
+    $result
+  });
 
-  $result
-});
+  $subs->example(-2, 'lpush', 'method', fun($tryable) {
+    ok my $result = $tryable->result;
+    is $result, 1;
+
+    $result
+  });
+};
 
 ok 1 and done_testing;
